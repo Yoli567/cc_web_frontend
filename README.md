@@ -70,6 +70,17 @@
 | 进程管理 | systemd |
 | 常驻会话 | tmux |
 
+## 前置条件
+
+| 条件 | 说明 |
+|------|------|
+| VPS / 云服务器 | 推荐 Ubuntu 22.04+，2核2G以上（Claude Code CLI 本身需要一定资源） |
+| Claude Code 订阅 | 需要有效的 Claude Max/Pro 订阅，用于运行 CLI |
+| Node.js 18+ | 前端构建 |
+| Python 3.10+ | 后端运行 |
+| tmux | 维持 Claude Code CLI 常驻会话 |
+| 域名 + SSL（推荐） | 用于 HTTPS 访问；无域名也可通过 IP 直连 |
+
 ## 本地开发
 
 ```bash
@@ -85,7 +96,101 @@ cd frontend && npm run dev                  # http://localhost:5173
 
 ## 部署
 
-项目通过 systemd 管理后端服务和 tmux 会话，Nginx 反向代理提供 HTTPS 和 WebSocket 支持。详见 `deploy/` 目录下的配置模板。
+### 1. 启动 Claude Code tmux 会话
+
+```bash
+# 创建持久 tmux 会话
+tmux new-session -d -s cc-main
+
+# 在会话中启动 Claude Code
+tmux send-keys -t cc-main 'claude' Enter
+```
+
+### 2. 构建前端
+
+```bash
+cd frontend
+npm run build    # 产出 dist/ 目录
+```
+
+### 3. 配置后端
+
+```bash
+cd backend
+cp ../deploy/cc-env.template .env
+# 编辑 .env，设置：
+#   AUTH_USERNAME=你的登录用户名
+#   AUTH_PASSWORD=你的登录密码
+#   TMUX_SESSION=cc-main
+#   FRONTEND_DIST=../frontend/dist
+```
+
+### 4. 配置 MCP Server
+
+将 `mcp-server/` 注册到 Claude Code 的 MCP 配置中，使 Claude Code 可以调用 `send_message` 等工具主动推送消息至前端。
+
+### 5. 配置 systemd
+
+```bash
+# 复制服务模板
+sudo cp deploy/systemd/cc-backend.service.template /etc/systemd/system/cc-backend.service
+sudo cp deploy/systemd/cc-tmux.service.template /etc/systemd/system/cc-tmux.service
+
+# 编辑 service 文件，修改路径和用户名
+sudo systemctl enable cc-backend cc-tmux
+sudo systemctl start cc-tmux cc-backend
+```
+
+### 6. 配置 Nginx + HTTPS（推荐）
+
+```bash
+# 复制 Nginx 配置模板
+sudo cp deploy/nginx/your-domain.com.conf.template \
+    /etc/nginx/sites-available/your-domain.com
+
+# 编辑配置，替换域名和路径
+sudo ln -s /etc/nginx/sites-available/your-domain.com /etc/nginx/sites-enabled/
+
+# 自动配置 SSL 证书
+sudo certbot --nginx -d your-domain.com
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+关键 Nginx 配置说明：
+
+```nginx
+# WebSocket 代理（必须配置，否则实时通信不工作）
+location /ws {
+    proxy_pass http://127.0.0.1:8001;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+
+# API 代理
+location /api {
+    proxy_pass http://127.0.0.1:8001;
+}
+
+# 前端静态文件（SPA 路由回退）
+location / {
+    root /path/to/frontend/dist;
+    try_files $uri /index.html;
+}
+```
+
+### 无域名部署
+
+没有域名也可以直接通过 IP 访问：
+
+```bash
+# 后端绑定 0.0.0.0
+uvicorn main:app --host 0.0.0.0 --port 8001
+
+# 浏览器访问 http://你的VPS-IP:8001
+```
+
+> 注意：无域名方式没有 HTTPS 加密，不建议在公网长期使用。
 
 ## 项目结构
 
