@@ -1,0 +1,26 @@
+# Save as /home/<RUN_USER>/.config/cc-env (mode 600, owner <RUN_USER>:<RUN_USER>).
+# DO NOT commit this file with real credentials.
+#
+# This file is read by:
+#   - cc-backend.service (via EnvironmentFile=)
+#   - cc-tmux.service    (via EnvironmentFile=)
+#
+# These envs make CC's outbound traffic (login, API calls) go through a residential
+# proxy so Anthropic sees a household ISP, not a datacenter IP. Skip if you don't need this.
+
+# cc-web-frontend login. Generate CC_WEB_AUTH_SECRET with:
+#   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+CC_WEB_USERNAME=admin
+CC_WEB_PASSWORD=<WEB_LOGIN_PASSWORD>
+CC_WEB_AUTH_SECRET=<RANDOM_LONG_SECRET>
+
+# Web Push notifications. Generate once and keep stable; rotating these keys
+# invalidates existing browser/PWA subscriptions.
+#   python3 -m py_vapid --gen
+CC_WEB_PUSH_VAPID_PUBLIC_KEY=<VAPID_PUBLIC_KEY>
+CC_WEB_PUSH_VAPID_PRIVATE_KEY=<VAPID_PRIVATE_KEY>
+CC_WEB_PUSH_VAPID_SUBJECT=mailto:admin@example.com
+
+HTTP_PROXY=http://<PROXY_USER>:<PROXY_PASS>@<PROXY_HOST>:<PROXY_PORT>
+HTTPS_PROXY=http://<PROXY_USER>:<PROXY_PASS>@<PROXY_HOST>:<PROXY_PORT>
+NO_PROXY=localhost,127.0.0.1,::1

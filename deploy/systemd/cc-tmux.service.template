@@ -1,0 +1,21 @@
+[Unit]
+Description=Claude Code in persistent tmux session (cc-main)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=<RUN_USER>
+Group=<RUN_USER>
+Environment=HOME=/home/<RUN_USER>
+Environment=TERM=xterm-256color
+Environment=PATH=/home/<RUN_USER>/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/home/<RUN_USER>/.config/cc-env
+WorkingDirectory=/home/<RUN_USER>/cc-home
+ExecStart=/bin/bash -c '/usr/bin/tmux has-session -t cc-main 2>/dev/null || /usr/bin/tmux new-session -d -s cc-main -c /home/<RUN_USER>/cc-home "claude --dangerously-skip-permissions"'
+ExecStop=/usr/bin/tmux kill-session -t cc-main
+RemainAfterExit=yes
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

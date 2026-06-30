@@ -1,0 +1,23 @@
+[Unit]
+Description=cc-web-frontend Backend (FastAPI on 127.0.0.1:<BACKEND_PORT>)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<RUN_USER>
+Group=<RUN_USER>
+Environment=HOME=/home/<RUN_USER>
+Environment=PATH=/home/<RUN_USER>/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/home/<RUN_USER>/.config/cc-env
+Environment=CC_BACKEND_MODE=live
+Environment=CC_TMUX_SESSION=cc-main
+WorkingDirectory=/home/<RUN_USER>/cc-home/backend
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 127.0.0.1 --port <BACKEND_PORT>
+Restart=on-failure
+RestartSec=3
+StandardOutput=append:/home/<RUN_USER>/cc-home/logs/backend.log
+StandardError=append:/home/<RUN_USER>/cc-home/logs/backend.log
+
+[Install]
+WantedBy=multi-user.target

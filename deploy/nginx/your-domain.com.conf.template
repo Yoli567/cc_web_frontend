@@ -1,0 +1,165 @@
+# cc-web-frontend nginx config for your-domain.com
+#
+# Place at /etc/nginx/sites-available/mcp and symlink from /etc/nginx/sites-enabled/mcp.
+# Replace placeholders before applying:
+#   <DOMAIN>              e.g. your-domain.com
+#   <FRONTEND_DIST>       absolute path to frontend/dist (e.g. /home/user/cc-home/frontend/dist)
+#   <VPS_MCP_TOKEN_PATH>  the existing path-based token for vps-mcp (keep if you have an existing MCP server)
+#   <BACKEND_PORT>        port the FastAPI backend listens on (default 8001)
+# Authentication is handled by the FastAPI backend via an HttpOnly cookie.
+# Set CC_WEB_USERNAME, CC_WEB_PASSWORD, and CC_WEB_AUTH_SECRET in the backend
+# EnvironmentFile. Do not add nginx Basic Auth to the app routes unless you
+# intentionally want the browser-native username/password prompt.
+
+server {
+    listen 80;
+    server_name <DOMAIN>;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl default_server;
+    server_name <DOMAIN>;
+
+    ssl_certificate /etc/letsencrypt/live/<DOMAIN>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<DOMAIN>/privkey.pem;
+
+    # ========================================================================
+    # Optional: keep existing vps-mcp (Claude.ai remote MCP) — NO auth_basic here
+    # ========================================================================
+    location <VPS_MCP_TOKEN_PATH> {
+        add_header 'Access-Control-Allow-Origin' '*' always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
+        if ($request_method = 'OPTIONS') { return 204; }
+
+        proxy_pass http://127.0.0.1:8000/mcp;
+        proxy_http_version 1.1;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        chunked_transfer_encoding on;
+    }
+
+    # ========================================================================
+    # cc-web-frontend backend (FastAPI on <BACKEND_PORT>)
+    # Auth is enforced by backend cookies. /api/auth/* must remain public so
+    # the frontend can check status and log in.
+    # ========================================================================
+    location /ws {
+        proxy_pass http://127.0.0.1:<BACKEND_PORT>/ws;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
+    # MCP bridge endpoints are called directly on 127.0.0.1 by Claude Code's
+    # stdio MCP subprocess. Do not expose them through nginx.
+    location /api/mcp/ {
+        return 404;
+    }
+
+    location /api/auth/ {
+        proxy_pass http://127.0.0.1:<BACKEND_PORT>/api/auth/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:<BACKEND_PORT>/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /upload {
+        client_max_body_size 50M;
+        proxy_pass http://127.0.0.1:<BACKEND_PORT>/upload;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /health {
+        proxy_pass http://127.0.0.1:<BACKEND_PORT>/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # ========================================================================
+    # Frontend SPA (build artifacts in <FRONTEND_DIST>)
+    # ========================================================================
+    root <FRONTEND_DIST>;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location = /manifest.json {
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
+    location ~ ^/favicon.*\.(png|svg)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+
+# ============================================================================
+# Other subdomain servers on the same VPS (e.g. another app at sub.your-domain.com)
+# Add as many <server> blocks as you have subdomains. They are independent of
+# the cc-web-frontend deployment above — keep them intact during edits!
+# ============================================================================
+# Example (uncomment and adjust):
+#
+# server {
+#     server_name sub.your-domain.com;
+#
+#     location / {
+#         proxy_pass http://127.0.0.1:8080;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection $http_connection;
+#     }
+#
+#     listen 443 ssl;
+#     ssl_certificate /etc/letsencrypt/live/sub.your-domain.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/sub.your-domain.com/privkey.pem;
+#     include /etc/letsencrypt/options-ssl-nginx.conf;
+#     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+# }
+#
+# server {
+#     if ($host = sub.your-domain.com) {
+#         return 301 https://$host$request_uri;
+#     }
+#     listen 80;
+#     server_name sub.your-domain.com;
+#     return 404;
+# }
